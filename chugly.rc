@@ -1,0 +1,65 @@
+#!/bin/rc
+
+# this script is a bit basic and was just to get a bit of understanding
+# in doing network stuff in rc script
+# I lifted some of it directly from Russ Cox's rlogin shells script
+# Boyd Roberts inspired me to go with awk
+# Jonathan Sergent helped me read $netdir/data a line at a time using read
+
+# you can write messages to it's data file to perform custom irc commands
+# eg. 
+# echo 'PRIVMSG JOIN #plan9' > net/tcp/21/data
+# and chugly will monitor the plan9 channel
+# output still goes to $channel though
+
+# these are the parameters it uses. The are not on the command line
+# so that I didn't have to write command parsing code
+
+## network
+clonefile = /net/tcp/clone
+ircserver = 192.168.1.9!6667
+## user info
+botnick = Chugly
+## channel to output commands to and join on connect
+channel = '#home'
+
+
+
+<[4] $clonefile {
+	netdir=`{basename -d $clonefile} ^ / ^  `{cat /fd/4}
+	# write connect string to /net/tcp/N/ctl
+	echo connect $ircserver to $netdir/ctl
+	echo connect $ircserver >$netdir/ctl || exit 'cannot connect'
+	inchan = no
+	{
+		while (~ `{cat $netdir/status} Established*) {
+			line=(`{read})
+			switch ($line(4)) {
+			case Checking
+				echo connecting
+				echo USER $botnick plan9.bell-labs.com www.surfnet-is.com ChuglyV0.2 > $netdir/data
+				echo NICK $botnick> $netdir/data
+			case :chug
+				oldifs = $ifs
+				ifs='
+'
+				ev = `{echo $line | tr -d  | awk '{for(i=5; i<=NF; i++) printf "%s ", $i; printf "\n"}'}
+				for (k in `{eval $ev}) 
+					echo PRIVMSG $channel :$k > $netdir/data
+
+				ifs = $oldifs
+			}
+			if(~ $line(1) PING) { 
+				echo PONG $line(2) > $netdir/data
+				if (~ $inchan no) {
+					echo JOIN $channel > $netdir/data
+					echo PRIVMSG $channel :$botnick is back > $netdir/data
+					inchan = yes
+				}
+			}
+			echo $line
+		}
+	} < $netdir/data
+}
+	
+
